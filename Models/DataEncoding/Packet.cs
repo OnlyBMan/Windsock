@@ -1,5 +1,8 @@
-public class Packet
+namespace Windsock
 {
-    public required PacketHeader Header { get; set; }
-    public required byte[] Payload { get; set; }
+    public class Packet
+    {
+        public required PacketHeader Header { get; set; }
+        public required byte[] Payload { get; set; }
+    }
 }
