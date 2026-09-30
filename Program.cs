@@ -11,6 +11,13 @@ namespace Windsock
             JsonSerializerOptions jsonSerializerOptions = new JsonSerializerOptions{PropertyNameCaseInsensitive = true};
             var config = JsonSerializer.Deserialize<Config>(File.ReadAllText(configPath), jsonSerializerOptions) ?? throw new InvalidOperationException("Configuration is empty.");
 
+            // Check if our LFRecord Exists
+            if(!LFRecord.LFRecordExists())
+            {
+                Console.WriteLine("In order to use Windsock, you need to supply your own LFRecord!");
+                return;
+            }
+
             // For now, send a simple message to our i1
             SampleMessage sampleMessage = new SampleMessage();
             List<string> segments = sampleMessage.Serialize();

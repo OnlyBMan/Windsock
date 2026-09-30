@@ -1,13 +1,16 @@
-public class SampleMessage()
+namespace Windsock
 {
-    private string message =
-    """
-    import twccommon
-    twccommon.Log.info("THIS IS WINDSOCK SAYING HELLO :)")
-    """;
-
-    public List<string> Serialize()
+    public class SampleMessage()
     {
-        return new List<string>() {message};
+        private string message =
+        """
+        import twccommon
+        twccommon.Log.info("THIS IS WINDSOCK SAYING HELLO :)")
+        """;
+
+        public List<string> Serialize()
+        {
+            return new List<string>() { message };
+        }
     }
 }
