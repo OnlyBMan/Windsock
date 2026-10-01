@@ -55,3 +55,4 @@ nunit-*.xml
 
 # Local VS Code settings
 .vscode/
+.DS_Store
