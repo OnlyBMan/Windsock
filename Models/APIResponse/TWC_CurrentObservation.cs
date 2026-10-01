@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Windsock
@@ -72,13 +71,13 @@ namespace Windsock
         public double? Snow24Hour { get; set; }
 
         [JsonPropertyName("sunriseTimeLocal")]
-        public DateTimeOffset? SunriseTimeLocal { get; set; }
+        public string? SunriseTimeLocal { get; set; }
 
         [JsonPropertyName("sunriseTimeUtc")]
         public long? SunriseTimeUtc { get; set; }
 
         [JsonPropertyName("sunsetTimeLocal")]
-        public DateTimeOffset? SunsetTimeLocal { get; set; }
+        public string? SunsetTimeLocal { get; set; }
 
         [JsonPropertyName("sunsetTimeUtc")]
         public long? SunsetTimeUtc { get; set; }
@@ -120,7 +119,7 @@ namespace Windsock
         public int UvIndex { get; set; }
 
         [JsonPropertyName("validTimeLocal")]
-        public DateTimeOffset ValidTimeLocal { get; set; }
+        public string ValidTimeLocal { get; set; } = string.Empty;
 
         [JsonPropertyName("validTimeUtc")]
         public long ValidTimeUtc { get; set; }

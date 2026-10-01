@@ -1,8 +1,6 @@
-using System.Linq.Expressions;
-
 namespace Windsock
 {
-    public class PacketEncoding
+    public static class PacketEncoding
     {
         private static long unixMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
@@ -71,7 +69,7 @@ namespace Windsock
         {
             PacketHeader packetHeader = new PacketHeader
             {
-                Length = 18,
+                Length = Constants.PACKET_HEADER_LENGTH,
                 ProtocolVersion = 1,
                 CompletionAbortFlag = 0,
                 PayloadLength = checked((ushort)payload.Length),
@@ -98,8 +96,9 @@ namespace Windsock
             uint messageID = NextMessageId();
             List<byte[]> returnPackets = new List<byte[]>();
 
-            foreach (var segment in segments)
+            for (int segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
             {
+                string segment = segments[segmentIndex];
                 byte[] payload = System.Text.Encoding.UTF8.GetBytes(segment);
 
                 List<byte[]> chunks = new List<byte[]>();
@@ -122,7 +121,7 @@ namespace Windsock
                 returnPackets.Add(
                     PacketEncoding.BuildIntroductionPacket(
                         messageID,
-                        segmentNum: (byte)segments.IndexOf(segment),
+                        segmentNum: (byte)segmentIndex,
                         segmentCount: (byte)segments.Count,
                         packetCount: checked((uint)chunks.Count + 1)));
 
@@ -132,13 +131,13 @@ namespace Windsock
                         chunks[i],
                         messageID,
                         packetNum: checked((uint)(i + 1)),
-                        segmentNum: (byte)segments.IndexOf(segment)));
+                        segmentNum: (byte)segmentIndex));
                 }
             }
             return returnPackets;
         }
 
-        static uint NextMessageId()
+        private static uint NextMessageId()
         {
             return unchecked((uint)System.Threading.Interlocked.Increment(ref unixMilliseconds));
         }

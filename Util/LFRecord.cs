@@ -8,9 +8,8 @@ namespace Windsock
 {
     public static class LFRecord
     {
-        public static List<LFRecordLocation> ParseLFRecord(string lfRecordPath, string configPath)
+        public static List<LFRecordLocation> ParseLFRecord(string lfRecordPath, Dictionary<string, List<string>> interestLists)
         {
-            Dictionary<string, List<string>> interestLists = ParseConfig(configPath);
             List<string> coopIds = interestLists.GetValueOrDefault("coopId") ?? new List<string>();
             List<string> observationStations = interestLists.GetValueOrDefault("obsStation") ?? new List<string>();
             string cachedLocationsPath = Path.Combine(AppContext.BaseDirectory, "CachedLocations.json");
@@ -56,7 +55,7 @@ namespace Windsock
 
                     string? coopId = (string?)data.Element("coopId");
                     string? observationStation = (string?)data.Element("obsStn");
-                    bool matchesCoop = coopId != null && coopIds.Contains(coopId) || coopId != null && observationStations.Contains("T" + coopId);
+                    bool matchesCoop = coopId != null && (coopIds.Contains(coopId) || observationStations.Contains("T" + coopId));
                     bool matchesStation = observationStation != null && observationStations.Contains(observationStation);
 
                     if (!matchesCoop && !matchesStation)
@@ -125,77 +124,6 @@ namespace Windsock
             using DeflateStream decompressor = new DeflateStream(input, CompressionMode.Decompress);
             using StreamReader reader = new StreamReader(decompressor, Encoding.UTF8);
             return reader.ReadToEnd();
-        }
-
-        public static Dictionary<string, List<string>> ParseConfig(string configPath, string configId = "1")
-        {
-            Dictionary<string, List<string>> interestLists = new Dictionary<string, List<string>>();
-
-            foreach (string configLine in File.ReadAllLines(configPath))
-            {
-                string line = configLine.Trim();
-                if (!line.StartsWith("wxdata.setInterestList("))
-                {
-                    continue;
-                }
-                
-                // Separate the interest name and config ID from the list of values.
-                int argumentsStart = line.IndexOf('(') + 1;
-                int listStart = line.IndexOf('[');
-                int listEnd = line.LastIndexOf(']');
-                if (listStart < argumentsStart || listEnd < listStart)
-                {
-                    throw new FormatException("Invalid interest list: " + line);
-                }
-
-                string arguments = line.Substring(argumentsStart, listStart - argumentsStart);
-                string[] argumentParts = arguments.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                if (argumentParts.Length != 2)
-                {
-                    throw new FormatException("Invalid interest list arguments: " + line);
-                }
-
-                string interestName = argumentParts[0].Trim().Trim('\'', '"');
-                string interestConfigId = argumentParts[1].Trim().Trim('\'', '"');
-                if (interestConfigId != configId)
-                {
-                    continue;
-                }
-
-                string listContents = line.Substring(listStart + 1, listEnd - listStart - 1);
-                List<string> values = new List<string>();
-                foreach (string listValue in listContents.Split(',', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string value = listValue.Trim();
-                    if (value.Length == 0)
-                    {
-                        continue;
-                    }
-
-                    value = value.Trim('\'', '"');
-                    if (!values.Contains(value))
-                    {
-                        values.Add(value);
-                    }
-                }
-
-                interestLists[interestName] = values;
-            }
-
-            List<Interest> interests = new List<Interest>();
-            foreach (KeyValuePair<string, List<string>> interestList in interestLists)
-            {
-                interests.Add(new Interest
-                {
-                    Category = interestList.Key,
-                    LocationIDs = interestList.Value
-                });
-            }
-
-            string cachedInterestPath = Path.Combine(AppContext.BaseDirectory, "CachedInterest.json");
-            JsonSerializerOptions jsonOptions = new JsonSerializerOptions { WriteIndented = true };
-            File.WriteAllText(cachedInterestPath, JsonSerializer.Serialize(interests, jsonOptions));
-            return interestLists;
         }
     }
 }

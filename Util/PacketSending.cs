@@ -1,19 +1,29 @@
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
 namespace Windsock
 {
-    public class PacketSending
+    public static class PacketSending
     {
         public static void SendMulticast(IEnumerable<byte[]> packets, NetworkConfig network, bool priority)
         {
-            using var sender = new UdpClient(AddressFamily.InterNetwork);
+            IPAddress interfaceAddress = IPAddress.Parse(network.InterfaceAddress);
+            bool interfaceExists = NetworkInterface.GetAllNetworkInterfaces().Any(networkInterface =>
+                networkInterface.GetIPProperties().UnicastAddresses.Any(address => address.Address.Equals(interfaceAddress)));
+            if (!interfaceExists)
+            {
+                Console.WriteLine("Cannot send packets: " + network.InterfaceAddress + " is not assigned to this computer. Update network.interfaceAddress in config.json or connect the VM network adapter.");
+                return;
+            }
 
-            sender.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.Parse(network.InterfaceAddress).GetAddressBytes());
+            using UdpClient sender = new UdpClient(AddressFamily.InterNetwork);
+
+            sender.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, interfaceAddress.GetAddressBytes());
 
             sender.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, network.Ttl);
 
-            var destination = new IPEndPoint(IPAddress.Parse(network.MulticastAddress), priority ? network.PriorityPort : network.RoutinePort);
+            IPEndPoint destination = new IPEndPoint(IPAddress.Parse(network.MulticastAddress), priority ? network.PriorityPort : network.RoutinePort);
 
             foreach (byte[] packet in packets)
             {
