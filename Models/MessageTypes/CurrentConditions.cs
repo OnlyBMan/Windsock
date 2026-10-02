@@ -1,6 +1,3 @@
-using System.Globalization;
-using System.Text.Json;
-
 namespace Windsock
 {
     public static class CurrentConditions
@@ -9,7 +6,7 @@ namespace Windsock
         {
             List<string> segments = new List<string>();
             long expiration = observation.ValidTimeUtc + 1800;
-            string stationLiteral = JsonSerializer.Serialize(stationId);
+            string stationLiteral = PythonStringHelper.PyValue(stationId);
 
             segments.Add($"""
             import twccommon
@@ -19,33 +16,33 @@ namespace Windsock
 
             """);
 
-            segments.Add(FormattableString.Invariant($"""
+            segments.Add($"""
             d = twc.Data()
-            d.temp = {observation.Temperature}
-            d.altimeter = {observation.PressureAltimeter}
-            d.pressure = {observation.PressureMeanSeaLevel}
-            d.dewpoint = {observation.TemperatureDewPoint}
-            d.heatIndex = {observation.TemperatureHeatIndex}
-            d.humidity = {observation.RelativeHumidity}
-            d.gusts = {observation.WindGust?.ToString(CultureInfo.InvariantCulture) ?? "None"}
-            d.windSpeed = {observation.WindSpeed}
-            d.windChill = {observation.TemperatureWindChill}
-            d.ceiling = {observation.CloudCeiling?.ToString(CultureInfo.InvariantCulture) ?? "None"}
-            d.skyCondition = {observation.IconCodeExtend}
-            d.pressureTendency = {observation.PressureTendencyCode}
-            d.visibility = {observation.Visibility}
+            d.temp = {PythonStringHelper.PyValue(observation.Temperature)}
+            d.altimeter = {PythonStringHelper.PyValue(observation.PressureAltimeter)}
+            d.pressure = {PythonStringHelper.PyValue(observation.PressureMeanSeaLevel)}
+            d.dewpoint = {PythonStringHelper.PyValue(observation.TemperatureDewPoint)}
+            d.heatIndex = {PythonStringHelper.PyValue(observation.TemperatureHeatIndex)}
+            d.humidity = {PythonStringHelper.PyValue(observation.RelativeHumidity)}
+            d.gusts = {PythonStringHelper.PyValue(observation.WindGust)}
+            d.windSpeed = {PythonStringHelper.PyValue(observation.WindSpeed)}
+            d.windChill = {PythonStringHelper.PyValue(observation.TemperatureWindChill)}
+            d.ceiling = {PythonStringHelper.PyValue(observation.CloudCeiling)}
+            d.skyCondition = {PythonStringHelper.PyValue(observation.IconCodeExtend)}
+            d.pressureTendency = {PythonStringHelper.PyValue(observation.PressureTendencyCode)}
+            d.visibility = {PythonStringHelper.PyValue(observation.Visibility)}
             d.windDirection = {WindDirectionMapping.ToOrdinal(observation.WindDirectionCardinal)}
-            d.feelsLikeIndex = {observation.TemperatureFeelsLike}
-            d.uvIndex = {observation.UvIndex}
-            et = {expiration}
+            d.feelsLikeIndex = {PythonStringHelper.PyValue(observation.TemperatureFeelsLike)}
+            d.uvIndex = {PythonStringHelper.PyValue(observation.UvIndex)}
+            et = {PythonStringHelper.PyValue(expiration)}
             wxdata.setData({stationLiteral}, 'obs', d, et)
             d = twc.Data()
-            d.tempMax = {observation.TemperatureMax24Hour}
-            d.tempMin = {observation.TemperatureMin24Hour}
-            et = {expiration}
+            d.tempMax = {PythonStringHelper.PyValue(observation.TemperatureMax24Hour)}
+            d.tempMin = {PythonStringHelper.PyValue(observation.TemperatureMin24Hour)}
+            et = {PythonStringHelper.PyValue(expiration)}
             wxdata.setData({stationLiteral}, 'recObs', d, et)
 
-            """));
+            """);
 
             return segments;
         }

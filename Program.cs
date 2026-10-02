@@ -25,8 +25,25 @@
             foreach (KeyValuePair<string, TWC_CurrentObservation> observation in observations)
             {
                 List<string> segments = CurrentConditions.BuildSegments(observation.Key, observation.Value);
+                if (segments.Count == 0)
+                {
+                    continue;
+                }
                 List<byte[]> packets = PacketEncoding.BuildMessage(segments);
                 PacketSending.SendMulticast(packets, config.Network, priority: true);
+            }
+
+            List<string> coopIds = interests.GetValueOrDefault("coopId") ?? new List<string>();
+            Dictionary<string, TWC_DailyForecast> dailyForecasts = await DataCollector.CollectDailyForecasts(locations, coopIds, config.API);
+            foreach (KeyValuePair<string, TWC_DailyForecast> forecast in dailyForecasts)
+            {
+                List<string> segments = TWC_DailyForecasts.BuildSegments(forecast.Key, forecast.Value);
+                if (segments.Count == 0)
+                {
+                    continue;
+                }
+                List<byte[]> packets = PacketEncoding.BuildMessage(segments);
+                PacketSending.SendMulticast(packets, config.Network, priority: false);
             }
         }
     }
