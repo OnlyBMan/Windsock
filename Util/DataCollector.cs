@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Windsock
 {
@@ -45,6 +46,19 @@ namespace Windsock
                     TWC_DailyForecast forecast = json.RootElement.Deserialize<TWC_DailyForecast>() ?? throw new JsonException("The daily forecast response is empty.");
                     if (forecast.Forecasts?.Count > 0)
                     {
+                        // Remove the "F" after degrees in the temperature narratives
+                        string tempNarrativePattern = @"(?<=\d)F\b";
+                        foreach (var dailyForecast in forecast.Forecasts)
+                        {
+                            if (!string.IsNullOrWhiteSpace(dailyForecast.Day?.Narrative))
+                            {
+                                dailyForecast.Day.Narrative = Regex.Replace(dailyForecast.Day.Narrative, tempNarrativePattern, "");
+                            }
+                            if (!string.IsNullOrWhiteSpace(dailyForecast.Night?.Narrative))
+                            {
+                                dailyForecast.Night.Narrative = Regex.Replace(dailyForecast.Night.Narrative, tempNarrativePattern, "");
+                            }
+                        }
                         forecasts[coopId] = forecast;
                     }
                 }
