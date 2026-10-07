@@ -48,11 +48,20 @@
             }
 
             List<string> radarFrames = await DataCollector.DownloadMapCutRange(i1Config, Path.Combine(AppContext.BaseDirectory, "MapTiles"), config.API, frames: 30);
-            
+
             foreach (string framePath in radarFrames)
             {
                 List<byte[]> packets = RadarImages.BuildPackets(framePath, i1Config.InstallName);
                 PacketSending.SendMulticast(packets, config.Network, priority: false);
+            }
+
+            // Now delete the downloaded radar frames
+            foreach (string framePath in radarFrames)
+            {
+                if (File.Exists(framePath))
+                {
+                    File.Delete(framePath);
+                }
             }
         }
     }
