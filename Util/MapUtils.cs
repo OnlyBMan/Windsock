@@ -12,6 +12,10 @@ namespace Windsock
 
             foreach (I1Map map in maps)
             {
+                if (map.MapName != "mercator.us.bfg")
+                {
+                    continue;
+                }
                 if (map.MapcutCoordinate == null || map.MapcutCoordinate.Length < 2
                     || map.MapcutSize == null || map.MapcutSize.Length < 2)
                 {
@@ -30,27 +34,36 @@ namespace Windsock
                 double longitudeRadiansRight = (right - 72046.041456) / 31073.895649;
                 double mercatorNorthingBottom = (bottom + 7521.072516) / 25893.432399;
 
+                double pixelX = 32768 * (longitudeRadians + Math.PI) / (2 * Math.PI);
+                double pixelY = 32768 * (1 - mercatorNorthing / Math.PI) / 2;
+                double pixelXRight = 32768 * (longitudeRadiansRight + Math.PI) / (2 * Math.PI);
+                double pixelYBottom = 32768 * (1 - mercatorNorthingBottom / Math.PI) / 2;
+
                 int tileX = (int)Math.Floor(128 * (longitudeRadians + Math.PI) / (2 * Math.PI));
                 int tileY = (int)Math.Floor(128 * (1 - mercatorNorthing / Math.PI) / 2);
                 int tileXRight = (int)Math.Floor(128 * (longitudeRadiansRight + Math.PI) / (2 * Math.PI));
                 int tileYBottom = (int)Math.Floor(128 * (1 - mercatorNorthingBottom / Math.PI) / 2);
 
-                if (!minXTile.HasValue || Math.Min(tileX, tileXRight) < minXTile.Value)
+                if (!minXTile.HasValue || Math.Min(pixelX, pixelXRight) < mapCutRange.Left)
                 {
                     minXTile = Math.Min(tileX, tileXRight);
+                    mapCutRange.Left = Math.Min(pixelX, pixelXRight);
                 }
-                if (!minYTile.HasValue || Math.Min(tileY, tileYBottom) < minYTile.Value)
+                if (!minYTile.HasValue || Math.Min(pixelY, pixelYBottom) < mapCutRange.Top)
                 {
                     minYTile = Math.Min(tileY, tileYBottom);
+                    mapCutRange.Top = Math.Min(pixelY, pixelYBottom);
                 }
 
-                if (!maxXTile.HasValue || Math.Max(tileX, tileXRight) > maxXTile.Value)
+                if (!maxXTile.HasValue || Math.Max(pixelX, pixelXRight) > mapCutRange.Right)
                 {
                     maxXTile = Math.Max(tileX, tileXRight);
+                    mapCutRange.Right = Math.Max(pixelX, pixelXRight);
                 }
-                if (!maxYTile.HasValue || Math.Max(tileY, tileYBottom) > maxYTile.Value)
+                if (!maxYTile.HasValue || Math.Max(pixelY, pixelYBottom) > mapCutRange.Bottom)
                 {
                     maxYTile = Math.Max(tileY, tileYBottom);
+                    mapCutRange.Bottom = Math.Max(pixelY, pixelYBottom);
                 }
             }
 

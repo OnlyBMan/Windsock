@@ -19,11 +19,10 @@
 
             I1Config i1Config = I1ConfigParser.Parse(i1ConfigPath);
             Dictionary<string, List<string>> interests = i1Config.Interests;
-            Dictionary<string, I1Map> maps = i1Config.Maps;
             List<LFRecordLocation> locations = LFRecord.ParseLFRecord(lfRecordPath, interests);
             List<string> stationIds = interests.GetValueOrDefault("obsStation") ?? new List<string>();
-
             Dictionary<string, TWC_CurrentObservation> observations = await DataCollector.CollectCurrentConditions(locations, stationIds, config.API);
+
             foreach (KeyValuePair<string, TWC_CurrentObservation> observation in observations)
             {
                 List<string> segments = CurrentConditions.BuildSegments(observation.Key, observation.Value);
@@ -45,6 +44,14 @@
                     continue;
                 }
                 List<byte[]> packets = PacketEncoding.BuildMessage(segments);
+                PacketSending.SendMulticast(packets, config.Network, priority: false);
+            }
+
+            List<string> radarFrames = await DataCollector.DownloadMapCutRange(i1Config, Path.Combine(AppContext.BaseDirectory, "MapTiles"), config.API, frames: 30);
+            
+            foreach (string framePath in radarFrames)
+            {
+                List<byte[]> packets = RadarImages.BuildPackets(framePath, i1Config.InstallName);
                 PacketSending.SendMulticast(packets, config.Network, priority: false);
             }
         }

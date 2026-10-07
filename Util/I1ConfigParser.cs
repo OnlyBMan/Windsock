@@ -6,7 +6,7 @@ namespace Windsock
 {
     public static class I1ConfigParser
     {
-        public static I1Config Parse(string configPath, string configId = "1")
+        public static I1Config Parse(string configPath, string? configId = null)
         {
             string source = File.ReadAllText(configPath);
             using var language = new Language("Python");
@@ -18,11 +18,33 @@ namespace Windsock
                 throw new FormatException("Unable to parse I1 config.");
             }
 
+            configId ??= FindConfigId(tree.RootNode);
             I1Config config = new()
             {
                 Interests = ParseInterests(tree.RootNode, language, configId),
                 Maps = ParseMaps(tree.RootNode, configId)
             };
+
+            foreach (Node statement in tree.RootNode.NamedChildren)
+            {
+                Node? function = statement.GetChildForField("function");
+                if (statement.Type != "call" || function?.GetChildForField("object")?.Text != "dsm" || function.GetChildForField("attribute")?.Text != "set")
+                {
+                    continue;
+                }
+
+                IReadOnlyList<Node>? arguments = statement.GetChildForField("arguments")?.NamedChildren;
+                if (arguments == null || arguments.Count < 2)
+                {
+                    continue;
+                }
+
+                string name = ReadPythonString(arguments[0].Text).ToLowerInvariant();
+                if (name == "scmt_configtype")
+                {
+                    config.InstallName = ReadPythonString(arguments[1].Text);
+                }
+            }
 
             List<Interest> interests = new();
             foreach (var interest in config.Interests)
@@ -41,7 +63,7 @@ namespace Windsock
             return config;
         }
 
-        public static Dictionary<string, I1Map> ParseMaps(string configPath, string configId = "1")
+        public static Dictionary<string, I1Map> ParseMaps(string configPath, string? configId = null)
         {
             string source = File.ReadAllText(configPath);
             using var language = new Language("Python");
@@ -53,7 +75,36 @@ namespace Windsock
                 throw new FormatException("Unable to parse I1 config.");
             }
 
-            return ParseMaps(tree.RootNode, configId);
+            return ParseMaps(tree.RootNode, configId ?? FindConfigId(tree.RootNode));
+        }
+
+        private static string FindConfigId(Node root)
+        {
+            foreach (Node statement in root.NamedChildren)
+            {
+                Node? function = statement.GetChildForField("function");
+                if (statement.Type != "call" || function?.GetChildForField("object")?.Text != "wxdata")
+                {
+                    continue;
+                }
+
+                IReadOnlyList<Node>? arguments = statement.GetChildForField("arguments")?.NamedChildren;
+                string? method = function.GetChildForField("attribute")?.Text;
+                if (method == "setMapData" && arguments?.Count >= 2)
+                {
+                    string[] key = ReadPythonString(arguments[0].Text).Split('.', 3);
+                    if (key.Length == 3 && key[0] == "Config")
+                    {
+                        return key[1];
+                    }
+                }
+                else if (method == "setInterestList" && arguments?.Count == 3)
+                {
+                    return ReadPythonString(arguments[1].Text);
+                }
+            }
+
+            return "1";
         }
 
         private static Dictionary<string, List<string>> ParseInterests(Node root, Language language, string configId)
