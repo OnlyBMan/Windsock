@@ -161,7 +161,7 @@ namespace Windsock
             return radarTimeStamp;
         }
 
-        public static async Task<List<string>> DownloadMapCutRange(I1Config config, string destinationPath, ApiConfig api, int frames = 0)
+        public static async Task<List<string>> DownloadMapCutRange(I1Config config, string destinationPath, ApiConfig api, int frames = 0, long? afterTimestamp = null)
         {
             List<I1Map> cuts = new List<I1Map>();
             foreach (I1Map map in config.Maps.Values)
@@ -199,6 +199,15 @@ namespace Windsock
                 throw new InvalidOperationException("No radar frames were returned.");
             }
 
+            int frameCount = frames > 0 ? Math.Min(frames, radar.Series.Count) : radar.Series.Count;
+            List<long> timestamps = radar.Series.Take(frameCount).Select(frame => frame.Timestamp).Where(timestamp => !afterTimestamp.HasValue || timestamp > afterTimestamp.Value).Distinct().OrderBy(timestamp => timestamp).ToList();
+            
+            if (timestamps.Count == 0)
+            {
+                Console.WriteLine("No new radar frames to send.");
+                return new List<string>();
+            }
+
             const int zoom = 7;
 
             MapCutRange range = MapUtils.ConvertMercatorRange(cuts);
@@ -217,9 +226,7 @@ namespace Windsock
             // i1 cuts use a bottom-left origin; TIFF images use top-left.
             int imageY = (int)Math.Round(canvasHeight - upper + (minY * 256 - range.Top) * scaleY);
 
-            int frameCount = frames > 0 ? Math.Min(frames, radar.Series.Count) : radar.Series.Count;
-            List<long> timestamps = radar.Series.Take(frameCount).Select(frame => frame.Timestamp).Reverse().ToList();
-            long expiration = timestamps.Max() + 43200;
+            long expiration = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 43200;
             string apiKey = Uri.EscapeDataString(api.TwcRadarKey);
             Directory.CreateDirectory(destinationPath);
             List<string> framePaths = new List<string>();

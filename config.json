@@ -10,5 +10,10 @@
   "api": {
     "twcForecastsKey": "your_api_key_here",
     "twcRadarKey": "your_api_key_here"
+  },
+  "timing": {
+    "radar": 5,
+    "currentConditions": 10,
+    "dailyForecast": 30
   }
 }

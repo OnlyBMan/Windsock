@@ -2,6 +2,8 @@
 {
     class Program
     {
+        private static long? lastRadarFrameTimestampSent;
+
         static async Task Main(string[] args)
         {
             string configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
@@ -20,6 +22,60 @@
             I1Config i1Config = I1ConfigParser.Parse(i1ConfigPath);
             Dictionary<string, List<string>> interests = i1Config.Interests;
             List<LFRecordLocation> locations = LFRecord.ParseLFRecord(lfRecordPath, interests);
+
+            using CancellationTokenSource shutdown = new CancellationTokenSource();
+            ConsoleCancelEventHandler cancelHandler = (_, e) =>
+            {
+                e.Cancel = true;
+                shutdown.Cancel();
+            };
+            Console.CancelKeyPress += cancelHandler;
+
+            try
+            {
+                await Task.WhenAll(
+                    RunScheduled("Current conditions", TimeSpan.FromMinutes(config.Timing.CurrentConditions), () => CollectCurrentConditions(config, interests, locations), shutdown.Token),
+                    RunScheduled("Daily forecast", TimeSpan.FromMinutes(config.Timing.DailyForecast), () => CollectDailyForecast(config, interests, locations), shutdown.Token),
+                    RunScheduled("Radar", TimeSpan.FromMinutes(config.Timing.Radar), () => CollectRadar(config, i1Config), shutdown.Token));
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancelHandler;
+            }
+        }
+
+        private static async Task RunScheduled(string name, TimeSpan interval, Func<Task> collect, CancellationToken cancellationToken)
+        {
+            Console.WriteLine($"{name}: running now and every {interval.TotalMinutes} minutes. Press Ctrl+C to stop.");
+            using PeriodicTimer timer = new PeriodicTimer(interval);
+
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await collect();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"{name} failed: {ex.Message}. Will retry on the next interval.");
+                    }
+
+                    if (!await timer.WaitForNextTickAsync(cancellationToken))
+                    {
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Allow an active collection to finish, then stop scheduling.
+            }
+        }
+
+        private static async Task CollectCurrentConditions(Config config, Dictionary<string, List<string>> interests, List<LFRecordLocation> locations)
+        {
             List<string> stationIds = interests.GetValueOrDefault("obsStation") ?? new List<string>();
             Dictionary<string, TWC_CurrentObservation> observations = await DataCollector.CollectCurrentConditions(locations, stationIds, config.API);
 
@@ -33,7 +89,10 @@
                 List<byte[]> packets = PacketEncoding.BuildMessage(segments);
                 PacketSending.SendMulticast(packets, config.Network, priority: true);
             }
+        }
 
+        private static async Task CollectDailyForecast(Config config, Dictionary<string, List<string>> interests, List<LFRecordLocation> locations)
+        {
             List<string> coopIds = interests.GetValueOrDefault("coopId") ?? new List<string>();
             Dictionary<string, TWC_DailyForecast> dailyForecasts = await DataCollector.CollectDailyForecasts(locations, coopIds, config.API);
             foreach (KeyValuePair<string, TWC_DailyForecast> forecast in dailyForecasts)
@@ -46,21 +105,38 @@
                 List<byte[]> packets = PacketEncoding.BuildMessage(segments);
                 PacketSending.SendMulticast(packets, config.Network, priority: false);
             }
+        }
 
-            List<string> radarFrames = await DataCollector.DownloadMapCutRange(i1Config, Path.Combine(AppContext.BaseDirectory, "MapTiles"), config.API, frames: 30);
+        private static async Task CollectRadar(Config config, I1Config i1Config)
+        {
+            List<string> radarFrames = await DataCollector.DownloadMapCutRange(i1Config, Path.Combine(AppContext.BaseDirectory, "MapTiles"), config.API, frames: 30, afterTimestamp: lastRadarFrameTimestampSent);
 
-            foreach (string framePath in radarFrames)
+            try
             {
-                List<byte[]> packets = RadarImages.BuildPackets(framePath, i1Config.InstallName);
-                PacketSending.SendMulticast(packets, config.Network, priority: false);
-            }
-
-            // Now delete the downloaded radar frames
-            foreach (string framePath in radarFrames)
-            {
-                if (File.Exists(framePath))
+                foreach (string framePath in radarFrames)
                 {
-                    File.Delete(framePath);
+                    long timestamp = long.Parse(Path.GetFileName(framePath).Split('.')[0], System.Globalization.CultureInfo.InvariantCulture);
+                    if (lastRadarFrameTimestampSent.HasValue && timestamp <= lastRadarFrameTimestampSent.Value)
+                    {
+                        continue;
+                    }
+
+                    List<byte[]> packets = RadarImages.BuildPackets(framePath, i1Config.InstallName);
+                    if (!PacketSending.SendMulticast(packets, config.Network, priority: false))
+                    {
+                        break;
+                    }
+                    lastRadarFrameTimestampSent = timestamp;
+                }
+            }
+            finally
+            {
+                foreach (string framePath in radarFrames)
+                {
+                    if (File.Exists(framePath))
+                    {
+                        File.Delete(framePath);
+                    }
                 }
             }
         }

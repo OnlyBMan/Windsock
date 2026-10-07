@@ -6,19 +6,26 @@ namespace Windsock
     {
         public NetworkConfig Network { get; set; } = new();
         public ApiConfig API { get; set; } = new();
+        public Timing Timing { get; set; } = new();
 
         public static Config Load(string configPath)
         {
             JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
             using JsonDocument json = JsonDocument.Parse(File.ReadAllText(configPath));
 
-            return new Config
+            Config config = new Config
             {
-                Network = json.RootElement.GetProperty("network").Deserialize<NetworkConfig>(options)
-                    ?? throw new InvalidOperationException("Network configuration is empty."),
-                API = json.RootElement.GetProperty("api").Deserialize<ApiConfig>(options)
-                    ?? throw new InvalidOperationException("API configuration is empty.")
+                Network = json.RootElement.GetProperty("network").Deserialize<NetworkConfig>(options) ?? throw new InvalidOperationException("Network configuration is empty."),
+                API = json.RootElement.GetProperty("api").Deserialize<ApiConfig>(options) ?? throw new InvalidOperationException("API configuration is empty."),
+                Timing = json.RootElement.TryGetProperty("timing", out JsonElement timing) ? timing.Deserialize<Timing>(options) ?? throw new InvalidOperationException("Timing configuration is empty.") : new Timing()
             };
+
+            if (config.Timing.Radar <= 0 || config.Timing.CurrentConditions <= 0 || config.Timing.DailyForecast <= 0)
+            {
+                throw new InvalidOperationException("All timing intervals must be positive numbers of minutes.");
+            }
+
+            return config;
         }
     }
 
@@ -36,5 +43,12 @@ namespace Windsock
     {
         public string TwcForecastsKey { get; set; } = "your_api_key_here";
         public string TwcRadarKey { get; set; } = "your_api_key_here";
+    }
+
+    public class Timing
+    {
+        public int Radar { get; set; } = 5;
+        public int CurrentConditions { get; set; } = 30;
+        public int DailyForecast { get; set; } = 30;
     }
 }
