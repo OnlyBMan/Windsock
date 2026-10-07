@@ -17,7 +17,9 @@
                 return;
             }
 
-            Dictionary<string, List<string>> interests = I1Config.Parse(i1ConfigPath);
+            I1Config i1Config = I1ConfigParser.Parse(i1ConfigPath);
+            Dictionary<string, List<string>> interests = i1Config.Interests;
+            Dictionary<string, I1Map> maps = i1Config.Maps;
             List<LFRecordLocation> locations = LFRecord.ParseLFRecord(lfRecordPath, interests);
             List<string> stationIds = interests.GetValueOrDefault("obsStation") ?? new List<string>();
 
