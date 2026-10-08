@@ -16,6 +16,8 @@
     "satRad": 5,
     "currentConditions": 10,
     "dailyForecast": 30,
-    "hourlyForecast": 30
+    "hourlyForecast": 30,
+    "headlines": 15,
+    "bulletins": 15
   }
 }

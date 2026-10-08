@@ -38,6 +38,8 @@
                     RunScheduled("Current conditions", TimeSpan.FromMinutes(config.Timing.CurrentConditions), () => CollectCurrentConditions(config, interests, locations), shutdown.Token),
                     RunScheduled("Daily forecast", TimeSpan.FromMinutes(config.Timing.DailyForecast), () => CollectDailyForecast(config, interests, locations), shutdown.Token),
                     RunScheduled("Hourly forecast", TimeSpan.FromMinutes(config.Timing.HourlyForecast), () => CollectHourlyForecast(config, interests, locations), shutdown.Token),
+                    RunScheduled("Headlines", TimeSpan.FromMinutes(config.Timing.Headlines), () => CollectHeadlines(config, interests), shutdown.Token),
+                    RunScheduled("Bulletins", TimeSpan.FromMinutes(config.Timing.Bulletins), () => CollectBulletins(config, interests), shutdown.Token),
                     RunScheduled("Radar", TimeSpan.FromMinutes(config.Timing.Radar), () => CollectRadar(config, i1Config), shutdown.Token),
                     RunScheduled("SatRad", TimeSpan.FromMinutes(config.Timing.SatRad), () => CollectSatRad(config, i1Config), shutdown.Token));
             }
@@ -123,6 +125,46 @@
                 }
                 List<byte[]> packets = PacketEncoding.BuildMessage(segments);
                 PacketSending.SendMulticast(packets, config.Network, priority: false);
+            }
+        }
+
+        private static async Task CollectHeadlines(Config config, Dictionary<string, List<string>> interests)
+        {
+            List<string> areaIds = new[] { "county", "zone", "zone.cwf" }.SelectMany(interest => interests.GetValueOrDefault(interest) ?? new List<string>()).Distinct().ToList();
+            Dictionary<string, List<TWC_Alert>> headlines = await DataCollector.CollectHeadlines(areaIds, config.API);
+            foreach (KeyValuePair<string, List<TWC_Alert>> area in headlines)
+            {
+                foreach (TWC_Alert alert in area.Value)
+                {
+                    List<string> segments = Headlines.BuildSegments(area.Key, alert);
+                    if (segments.Count == 0)
+                    {
+                        continue;
+                    }
+                    List<byte[]> packets = PacketEncoding.BuildMessage(segments);
+                    PacketSending.SendMulticast(packets, config.Network, priority: alert.SeverityCode is > 0 and <= 2);
+                    break;
+                }
+            }
+        }
+
+        private static async Task CollectBulletins(Config config, Dictionary<string, List<string>> interests)
+        {
+            List<string> areaIds = new[] { "county", "zone", "zone.cwf" }.SelectMany(interest => interests.GetValueOrDefault(interest) ?? new List<string>()).Distinct().ToList();
+            List<string> coastalAreaIds = interests.GetValueOrDefault("zone.cwf") ?? new List<string>();
+            Dictionary<string, List<TWC_Alert>> bulletins = await DataCollector.CollectBulletins(areaIds, coastalAreaIds, config.API);
+            foreach (KeyValuePair<string, List<TWC_Alert>> area in bulletins)
+            {
+                foreach (TWC_Alert alert in area.Value)
+                {
+                    List<string> segments = Bulletins.BuildSegments(area.Key, alert);
+                    if (segments.Count == 0)
+                    {
+                        continue;
+                    }
+                    List<byte[]> packets = PacketEncoding.BuildMessage(segments);
+                    PacketSending.SendMulticast(packets, config.Network, priority: true);
+                }
             }
         }
 

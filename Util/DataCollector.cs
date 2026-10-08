@@ -172,6 +172,193 @@ namespace Windsock
             return observations;
         }
 
+        public static async Task<Dictionary<string, List<TWC_Alert>>> CollectHeadlines(List<string> areaIds, ApiConfig api, string product = "alerts")
+        {
+            string? apiKey = api.TwcForecastsKey;
+            if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "your_api_key_here")
+            {
+                throw new InvalidOperationException("You didn't set the TWC Forecasts API key.");
+            }
+
+            List<string> areas = areaIds.Where(area => Regex.IsMatch(area, @"^[A-Z]{2}[CZ]\d{3}$")).Distinct().ToList();
+            List<string> states = product == "alerts" ? areas.Where(area => area[2] == 'C').Select(area => area.Substring(0, 2)).Distinct().ToList() : new List<string>();
+            Dictionary<string, List<TWC_Alert>> headlines = new Dictionary<string, List<TWC_Alert>>();
+            foreach (string query in areas.Concat(states))
+            {
+                headlines[query] = new List<TWC_Alert>();
+                long? next = null;
+                HashSet<long> cursors = new HashSet<long>();
+                try
+                {
+                    for (int page = 0; page < 100; page++)
+                    {
+                        string parameter = query.Length == 2 ? "adminDistrictCode" : "areaId";
+                        string url = "https://api.weather.com/v3/" + product + "/headlines?" + parameter + "=" + Uri.EscapeDataString(query + ":US") + "&language=en-US&format=json&apiKey=" + Uri.EscapeDataString(apiKey);
+                        if (next.HasValue)
+                        {
+                            url += "&next=" + next.Value.ToString(CultureInfo.InvariantCulture);
+                        }
+
+                        using HttpResponseMessage response = await client.GetAsync(url);
+                        if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+                        {
+                            break;
+                        }
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            Console.WriteLine(product + " headlines failed for " + query + ": HTTP " + (int)response.StatusCode);
+                            break;
+                        }
+
+                        TWC_AlertHeadlines result = JsonSerializer.Deserialize<TWC_AlertHeadlines>(await response.Content.ReadAsStringAsync()) ?? throw new JsonException("The headlines response is empty.");
+                        if (result.Alerts == null)
+                        {
+                            throw new JsonException("The response does not contain alerts.");
+                        }
+                        foreach (TWC_Alert alert in result.Alerts)
+                        {
+                            if (query.Length == 2 || alert.AreaId == query)
+                            {
+                                alert.Product = product;
+                                headlines[query].Add(alert);
+                            }
+                        }
+                        next = result.Metadata?.Next;
+                        if (!next.HasValue)
+                        {
+                            break;
+                        }
+                        if (!cursors.Add(next.Value) || page == 99 || headlines[query].Count > 2000)
+                        {
+                            throw new JsonException("The headlines pagination did not finish.");
+                        }
+                    }
+                }
+                catch (Exception exception) when (exception is HttpRequestException || exception is TaskCanceledException || exception is JsonException)
+                {
+                    Console.WriteLine("Could not collect " + product + " headlines for " + query + " (" + exception.GetType().Name + ").");
+                }
+            }
+
+            Dictionary<string, List<string>> countiesByZone = new Dictionary<string, List<string>>();
+            foreach (string county in areas.Where(area => area[2] == 'C'))
+            {
+                string state = county.Substring(0, 2);
+                if (!states.Contains(state))
+                {
+                    continue;
+                }
+                foreach (TWC_Alert alert in headlines[state])
+                {
+                    string zone = alert.AreaId ?? "";
+                    if (!Regex.IsMatch(zone, "^" + state + @"Z\d{3}$"))
+                    {
+                        continue;
+                    }
+                    if (!countiesByZone.TryGetValue(zone, out List<string>? counties))
+                    {
+                        try
+                        {
+                            string url = "https://api.weather.com/v3/location/boundary?zoneId=" + Uri.EscapeDataString(zone) + "&product=county&format=json&apiKey=" + Uri.EscapeDataString(apiKey);
+                            using HttpResponseMessage response = await client.GetAsync(url);
+                            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                            {
+                                counties = new List<string>();
+                            }
+                            else
+                            {
+                                response.EnsureSuccessStatusCode();
+                                using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                                counties = new List<string>();
+                                foreach (JsonElement feature in json.RootElement.GetProperty("features").EnumerateArray())
+                                {
+                                    JsonElement properties = feature.GetProperty("properties");
+                                    if (properties.GetProperty("product").GetString() == "county" && properties.TryGetProperty("key", out JsonElement key) && key.GetString() is string countyId)
+                                    {
+                                        counties.Add(countyId);
+                                    }
+                                }
+                            }
+                            countiesByZone[zone] = counties;
+                        }
+                        catch (Exception exception) when (exception is HttpRequestException || exception is TaskCanceledException || exception is JsonException || exception is KeyNotFoundException)
+                        {
+                            Console.WriteLine("Could not map alert zone " + zone + " to counties (" + exception.GetType().Name + ").");
+                            continue;
+                        }
+                    }
+                    if (counties.Contains(county))
+                    {
+                        headlines[county].Add(alert);
+                    }
+                }
+            }
+
+            foreach (string state in states)
+            {
+                headlines.Remove(state);
+            }
+            foreach (string area in areas)
+            {
+                headlines[area] = headlines[area].DistinctBy(alert => (alert.DetailKey, alert.AreaId))
+                    .OrderBy(alert => alert.SeverityCode is > 0 ? alert.SeverityCode.Value : 99)
+                    .ThenBy(alert => alert.Significance switch { "W" => 0, "A" => 1, "Y" => 2, "S" => 3, _ => 4 })
+                    .ThenByDescending(alert => alert.ProcessTimeUTC > 100000000000 ? alert.ProcessTimeUTC / 1000 : alert.ProcessTimeUTC)
+                    .ThenBy(alert => alert.DetailKey, StringComparer.Ordinal).Take(20).ToList();
+            }
+            return headlines;
+        }
+
+        public static async Task<Dictionary<string, List<TWC_Alert>>> CollectBulletins(List<string> areaIds, List<string> coastalAreaIds, ApiConfig api)
+        {
+            Dictionary<string, List<TWC_Alert>> bulletins = await CollectHeadlines(areaIds, api);
+            Dictionary<string, List<TWC_Alert>> coastalBulletins = await CollectHeadlines(coastalAreaIds, api, "bulletins");
+            foreach (KeyValuePair<string, List<TWC_Alert>> area in coastalBulletins)
+            {
+                if (!bulletins.ContainsKey(area.Key))
+                {
+                    bulletins[area.Key] = new List<TWC_Alert>();
+                }
+                bulletins[area.Key].AddRange(area.Value);
+            }
+
+            Dictionary<(string Product, string Key), TWC_Alert> details = new Dictionary<(string Product, string Key), TWC_Alert>();
+            foreach (List<TWC_Alert> alerts in bulletins.Values)
+            {
+                foreach (TWC_Alert alert in alerts)
+                {
+                    if (string.IsNullOrWhiteSpace(alert.DetailKey))
+                    {
+                        continue;
+                    }
+                    if (!details.TryGetValue((alert.Product, alert.DetailKey), out TWC_Alert? detail))
+                    {
+                        try
+                        {
+                            string url = "https://api.weather.com/v3/" + alert.Product + "/detail?alertId=" + Uri.EscapeDataString(alert.DetailKey) + "&language=en-US&format=json&apiKey=" + Uri.EscapeDataString(api.TwcForecastsKey);
+                            using HttpResponseMessage response = await client.GetAsync(url);
+                            if (!response.IsSuccessStatusCode)
+                            {
+                                Console.WriteLine("Bulletin detail failed for " + alert.AreaId + ": HTTP " + (int)response.StatusCode);
+                                continue;
+                            }
+                            using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                            JsonElement entry = json.RootElement.TryGetProperty("alertDetail", out JsonElement wrapped) ? wrapped : json.RootElement;
+                            detail = entry.Deserialize<TWC_Alert>() ?? throw new JsonException("The bulletin detail response is empty.");
+                            details[(alert.Product, alert.DetailKey)] = detail;
+                        }
+                        catch (Exception exception) when (exception is HttpRequestException || exception is TaskCanceledException || exception is JsonException)
+                        {
+                            Console.WriteLine("Could not collect bulletin detail for " + alert.AreaId + " (" + exception.GetType().Name + ").");
+                            continue;
+                        }
+                    }
+                    alert.Detail = detail;
+                }
+            }
+            return bulletins;
+        }
+
         public static async Task<TWC_RadarTimeStamp> CollectRadarTimeStamps(ApiConfig api, string product = "twcRadarMosaic")
         {
 

@@ -24,7 +24,9 @@ namespace Windsock
             foreach (TWC_HourlyForecastEntry forecast in forecasts)
             {
                 if (forecast.FcstValid is not long valid)
+                {
                     continue;
+                }
 
                 long expiration = Math.Max(forecast.ExpireTimeGmt is > 0 ? forecast.ExpireTimeGmt.Value : valid + 5400, minimumExpiration);
                 segments.Add($"""

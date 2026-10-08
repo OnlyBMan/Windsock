@@ -26,7 +26,9 @@ namespace Windsock
             foreach (TWC_DailyForecastEntry forecast in forecasts)
             {
                 if (forecast.Day?.FcstValid is null && forecast.Night?.FcstValid is null)
+                {
                     continue;
+                }
 
                 long expiration = Math.Max(forecast.ExpireTimeGmt ?? 0, minimumExpiration);
                 string segment = "import twccommon\n";
