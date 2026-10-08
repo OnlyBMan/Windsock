@@ -13,6 +13,7 @@
   },
   "timing": {
     "radar": 5,
+    "satRad": 5,
     "currentConditions": 10,
     "dailyForecast": 30
   }

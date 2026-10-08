@@ -2,6 +2,20 @@ namespace Windsock
 {
     public class MapUtils
     {
+        public static (double X, double Y) ConvertLambertCoordinate(double x, double y, int zoom)
+        {
+            const double n = 0.6568376641484703;
+            double projectedX = (x - 3946.381357) / 7754.426972;
+            double projectedY = (6630.826472 - y) / 7711.662139;
+            double radius = Math.Sqrt(projectedX * projectedX + projectedY * projectedY);
+            double latitude = 2 * Math.Atan(Math.Pow(radius, -1 / n)) - Math.PI / 2;
+            double longitude = Math.Atan2(projectedX, projectedY) / n - 96 * Math.PI / 180;
+            double worldSize = 256 * (1 << zoom);
+            double pixelX = worldSize * (longitude + Math.PI) / (2 * Math.PI);
+            double pixelY = worldSize * (1 - Math.Log(Math.Tan(Math.PI / 4 + latitude / 2)) / Math.PI) / 2;
+            return (pixelX, pixelY);
+        }
+
         public static MapCutRange ConvertMercatorRange(List<I1Map> maps)
         {
             MapCutRange mapCutRange = new MapCutRange();

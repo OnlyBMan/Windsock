@@ -3,6 +3,7 @@
     class Program
     {
         private static long? lastRadarFrameTimestampSent;
+        private static long? lastSatRadFrameTimestampSent;
 
         static async Task Main(string[] args)
         {
@@ -36,7 +37,8 @@
                 await Task.WhenAll(
                     RunScheduled("Current conditions", TimeSpan.FromMinutes(config.Timing.CurrentConditions), () => CollectCurrentConditions(config, interests, locations), shutdown.Token),
                     RunScheduled("Daily forecast", TimeSpan.FromMinutes(config.Timing.DailyForecast), () => CollectDailyForecast(config, interests, locations), shutdown.Token),
-                    RunScheduled("Radar", TimeSpan.FromMinutes(config.Timing.Radar), () => CollectRadar(config, i1Config), shutdown.Token));
+                    RunScheduled("Radar", TimeSpan.FromMinutes(config.Timing.Radar), () => CollectRadar(config, i1Config), shutdown.Token),
+                    RunScheduled("SatRad", TimeSpan.FromMinutes(config.Timing.SatRad), () => CollectSatRad(config, i1Config), shutdown.Token));
             }
             finally
             {
@@ -132,6 +134,45 @@
             finally
             {
                 foreach (string framePath in radarFrames)
+                {
+                    if (File.Exists(framePath))
+                    {
+                        File.Delete(framePath);
+                    }
+                }
+            }
+        }
+
+        private static async Task CollectSatRad(Config config, I1Config i1Config)
+        {
+            if (!i1Config.Maps.Values.Any(map => map.DatacutType == "radarSatellite.us"))
+            {
+                return;
+            }
+
+            List<string> satRadFrames = await DataCollector.DownloadSatRadMapCutRange(i1Config, Path.Combine(AppContext.BaseDirectory, "SatRadTiles"), config.API, frames: 20, afterTimestamp: lastSatRadFrameTimestampSent);
+
+            try
+            {
+                foreach (string framePath in satRadFrames)
+                {
+                    long timestamp = long.Parse(Path.GetFileName(framePath).Split('.')[0], System.Globalization.CultureInfo.InvariantCulture);
+                    if (lastSatRadFrameTimestampSent.HasValue && timestamp <= lastSatRadFrameTimestampSent.Value)
+                    {
+                        continue;
+                    }
+
+                    List<byte[]> packets = SatRadImages.BuildPackets(framePath, i1Config.InstallName);
+                    if (!PacketSending.SendMulticast(packets, config.Network, priority: false))
+                    {
+                        break;
+                    }
+                    lastSatRadFrameTimestampSent = timestamp;
+                }
+            }
+            finally
+            {
+                foreach (string framePath in satRadFrames)
                 {
                     if (File.Exists(framePath))
                     {

@@ -122,7 +122,7 @@ namespace Windsock
             return observations;
         }
 
-        public static async Task<TWC_RadarTimeStamp> CollectRadarTimeStamps(ApiConfig api)
+        public static async Task<TWC_RadarTimeStamp> CollectRadarTimeStamps(ApiConfig api, string product = "twcRadarMosaic")
         {
 
             string? apiKey = api.TwcRadarKey;
@@ -136,25 +136,25 @@ namespace Windsock
 
             try
             {
-                string url = $"https://api.weather.com/v3/TileServer/series/product/twcRadarMosaic?apiKey={apiKey}";
+                string url = $"https://api.weather.com/v3/TileServer/series/product/{product}?apiKey={Uri.EscapeDataString(apiKey)}";
                 using HttpResponseMessage response = await client.GetAsync(url);
                 if (!response.IsSuccessStatusCode)
                 {
-                    Console.WriteLine("Radar time stamps collection failed: HTTP " + (int)response.StatusCode);
-                    throw new HttpRequestException("Radar time stamps collection failed: HTTP " + (int)response.StatusCode);
+                    Console.WriteLine(product + " time stamps collection failed: HTTP " + (int)response.StatusCode);
+                    throw new HttpRequestException(product + " time stamps collection failed: HTTP " + (int)response.StatusCode);
                 }
 
                 using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
                 if (!json.RootElement.TryGetProperty("series", out _))
                 {
-                    throw new JsonException("The response does not contain radar time stamps? Check key?");
+                    throw new JsonException("The response does not contain " + product + " time stamps? Check key?");
                 }
 
-                radarTimeStamp = json.RootElement.Deserialize<TWC_RadarTimeStamp>() ?? throw new JsonException("The radar time stamps response is empty.");
+                radarTimeStamp = json.RootElement.Deserialize<TWC_RadarTimeStamp>() ?? throw new JsonException("The " + product + " time stamps response is empty.");
             }
             catch (Exception exception) when (exception is HttpRequestException || exception is TaskCanceledException || exception is JsonException)
             {
-                Console.WriteLine("Could not collect radar time stamps (" + exception.GetType().Name + ").");
+                Console.WriteLine("Could not collect " + product + " time stamps (" + exception.GetType().Name + ").");
             }
 
 
@@ -295,6 +295,167 @@ namespace Windsock
                 await canvas.WriteAsync(framePath, MagickFormat.Tiff);
                 framePaths.Add(framePath);
                 Console.WriteLine("Saved radar frame: " + Path.GetFileName(framePath));
+            }
+
+            return framePaths;
+        }
+
+        public static async Task<List<string>> DownloadSatRadMapCutRange(I1Config config, string destinationPath, ApiConfig api, int frames = 0, long? afterTimestamp = null)
+        {
+            List<I1Map> cuts = new List<I1Map>();
+            foreach (I1Map map in config.Maps.Values)
+            {
+                if (map.DatacutType != "radarSatellite.us")
+                {
+                    continue;
+                }
+                if (map.DatacutCoordinate is not { Length: >= 2 } || map.DatacutSize is not { Length: >= 2 }
+                    || map.MapName != "lambert.us.tif"
+                    || map.MapcutCoordinate is not { Length: >= 2 } || map.MapcutSize is not { Length: >= 2 }
+                    || map.DatacutCoordinate[0] < 0 || map.DatacutCoordinate[1] < 0
+                    || map.DatacutSize[0] <= 0 || map.DatacutSize[1] <= 0
+                    || map.MapcutSize[0] <= 0 || map.MapcutSize[1] <= 0)
+                {
+                    throw new InvalidDataException("Invalid satrad cut: " + map.Name);
+                }
+                cuts.Add(map);
+            }
+            if (cuts.Count == 0)
+            {
+                throw new InvalidDataException("The i1 config does not contain any radarSatellite.us data cuts.");
+            }
+
+            TWC_RadarTimeStamp satRad = await CollectRadarTimeStamps(api, "satrad");
+            if (satRad.Series.Count == 0)
+            {
+                throw new InvalidOperationException("No satrad frames were returned.");
+            }
+
+            int frameCount = frames > 0 ? Math.Min(frames, satRad.Series.Count) : satRad.Series.Count;
+            List<long> timestamps = satRad.Series.Take(frameCount).Select(frame => frame.Timestamp).Where(timestamp => !afterTimestamp.HasValue || timestamp > afterTimestamp.Value).Distinct().OrderBy(timestamp => timestamp).ToList();
+
+            if (timestamps.Count == 0)
+            {
+                Console.WriteLine("No new satrad frames to send.");
+                return new List<string>();
+            }
+
+            int left = cuts.Min(cut => cut.DatacutCoordinate![0]);
+            int lower = cuts.Min(cut => cut.DatacutCoordinate![1]);
+            int right = cuts.Max(cut => cut.DatacutCoordinate![0] + cut.DatacutSize![0]);
+            int upper = cuts.Max(cut => cut.DatacutCoordinate![1] + cut.DatacutSize![1]);
+            int canvasWidth = Math.Max(2400, right + 64);
+            int canvasHeight = Math.Max(1600, upper + 64);
+            int width = right - left;
+            int height = upper - lower;
+            const int zoom = 5;
+
+            (double X, double Y)[] coordinates = new (double X, double Y)[width * height];
+            Array.Fill(coordinates, (double.NaN, double.NaN));
+            foreach (I1Map cut in cuts)
+            {
+                for (int y = 0; y < cut.DatacutSize![1]; y++)
+                {
+                    for (int x = 0; x < cut.DatacutSize![0]; x++)
+                    {
+                        double mapX = cut.MapcutCoordinate![0] + (x + 0.5) * cut.MapcutSize![0] / cut.DatacutSize[0];
+                        double mapY = cut.MapcutCoordinate![1] + (y + 0.5) * cut.MapcutSize![1] / cut.DatacutSize[1];
+                        int index = (cut.DatacutCoordinate![1] + y - lower) * width + cut.DatacutCoordinate[0] + x - left;
+                        coordinates[index] = MapUtils.ConvertLambertCoordinate(mapX, mapY, zoom);
+                    }
+                }
+            }
+
+            int minX = (int)Math.Floor(coordinates.Where(coordinate => !double.IsNaN(coordinate.X)).Min(coordinate => coordinate.X) / 256);
+            int maxX = (int)Math.Floor(coordinates.Where(coordinate => !double.IsNaN(coordinate.X)).Max(coordinate => coordinate.X) / 256);
+            int minY = (int)Math.Floor(coordinates.Where(coordinate => !double.IsNaN(coordinate.Y)).Min(coordinate => coordinate.Y) / 256);
+            int maxY = (int)Math.Floor(coordinates.Where(coordinate => !double.IsNaN(coordinate.Y)).Max(coordinate => coordinate.Y) / 256);
+            int mosaicWidth = (maxX - minX + 1) * 256;
+            int mosaicHeight = (maxY - minY + 1) * 256;
+
+            long expiration = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 43200;
+            string apiKey = Uri.EscapeDataString(api.TwcRadarKey);
+            Directory.CreateDirectory(destinationPath);
+            List<string> framePaths = new List<string>();
+
+            MagickColor[] palette =
+            {
+                new MagickColor("#000000"), new MagickColor("#40CC55"), new MagickColor("#009900"),
+                new MagickColor("#006600"), new MagickColor("#BFCC55"), new MagickColor("#BF9900"),
+                new MagickColor("#FF3300"), new MagickColor("#BF3300"), new MagickColor("#800000"),
+                new MagickColor("#400000")
+            };
+
+            foreach (long timestamp in timestamps)
+            {
+                using MagickImage mosaic = new MagickImage(MagickColors.Transparent, (uint)mosaicWidth, (uint)mosaicHeight);
+                bool complete = true;
+                for (int y = minY; y <= maxY && complete; y++)
+                {
+                    for (int x = minX; x <= maxX; x++)
+                    {
+                        string tileUrl = $"https://api.weather.com/v3/TileServer/tile/satrad?ts={timestamp}&xyz={x}:{y}:{zoom}&apiKey={apiKey}";
+                        try
+                        {
+                            byte[] tileData = await client.GetByteArrayAsync(tileUrl);
+                            using MagickImage tile = new MagickImage(tileData, MagickFormat.Png);
+                            if (tile.Width == 1 && tile.Height == 1)
+                            {
+                                tile.Resize(256, 256, FilterType.Point);
+                            }
+                            else if (tile.Width != 256 || tile.Height != 256)
+                            {
+                                throw new InvalidDataException("SatRad tiles must be 256 by 256 pixels.");
+                            }
+                            mosaic.Composite(tile, (x - minX) * 256, (y - minY) * 256, CompositeOperator.Copy);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Skipping satrad frame {timestamp}: tile ({x}, {y}) failed ({ex.GetType().Name}).");
+                            complete = false;
+                            break;
+                        }
+                    }
+                }
+                if (!complete)
+                {
+                    continue;
+                }
+
+                mosaic.BackgroundColor = MagickColors.Black;
+                mosaic.Alpha(AlphaOption.Remove);
+                mosaic.Depth = 8;
+                byte[] sourceData = mosaic.ToByteArray(MagickFormat.Rgb);
+                using IMagickImage<byte> radar = mosaic.Clone();
+                radar.Remap(palette, new QuantizeSettings { DitherMethod = DitherMethod.No });
+                byte[] radarData = radar.ToByteArray(MagickFormat.Rgb);
+                byte[] canvasData = new byte[canvasWidth * canvasHeight * 3];
+                for (int y = 0; y < height; y++)
+                {
+                    for (int x = 0; x < width; x++)
+                    {
+                        (double X, double Y) coordinate = coordinates[y * width + x];
+                        if (double.IsNaN(coordinate.X))
+                        {
+                            continue;
+                        }
+                        int sourceX = (int)Math.Floor(coordinate.X) - minX * 256;
+                        int sourceY = (int)Math.Floor(coordinate.Y) - minY * 256;
+                        int sourceIndex = (sourceY * mosaicWidth + sourceX) * 3;
+                        int destinationIndex = ((canvasHeight - 1 - lower - y) * canvasWidth + left + x) * 3;
+                        bool cloud = sourceData[sourceIndex] == sourceData[sourceIndex + 1] && sourceData[sourceIndex + 1] == sourceData[sourceIndex + 2];
+                        Buffer.BlockCopy(cloud ? sourceData : radarData, sourceIndex, canvasData, destinationIndex, 3);
+                    }
+                }
+
+                using MagickImage canvas = new MagickImage(canvasData, new MagickReadSettings { Width = (uint)canvasWidth, Height = (uint)canvasHeight, Depth = 8, Format = MagickFormat.Rgb });
+                canvas.ColorType = ColorType.TrueColor;
+                canvas.Settings.ColorType = ColorType.TrueColor;
+                canvas.Settings.Compression = CompressionMethod.RLE;
+                string framePath = Path.Combine(destinationPath, $"{timestamp}.{expiration}.tif");
+                await canvas.WriteAsync(framePath, MagickFormat.Tiff);
+                framePaths.Add(framePath);
+                Console.WriteLine("Saved satrad frame: " + Path.GetFileName(framePath));
             }
 
             return framePaths;
