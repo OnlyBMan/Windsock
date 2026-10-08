@@ -20,7 +20,7 @@ namespace Windsock
                 Timing = json.RootElement.TryGetProperty("timing", out JsonElement timing) ? timing.Deserialize<Timing>(options) ?? throw new InvalidOperationException("Timing configuration is empty.") : new Timing()
             };
 
-            if (config.Timing.Radar <= 0 || config.Timing.SatRad <= 0 || config.Timing.CurrentConditions <= 0 || config.Timing.DailyForecast <= 0)
+            if (config.Timing.Radar <= 0 || config.Timing.SatRad <= 0 || config.Timing.CurrentConditions <= 0 || config.Timing.DailyForecast <= 0 || config.Timing.HourlyForecast <= 0)
             {
                 throw new InvalidOperationException("All timing intervals must be positive numbers of minutes.");
             }
@@ -51,5 +51,6 @@ namespace Windsock
         public int SatRad { get; set; } = 5;
         public int CurrentConditions { get; set; } = 30;
         public int DailyForecast { get; set; } = 30;
+        public int HourlyForecast { get; set; } = 30;
     }
 }

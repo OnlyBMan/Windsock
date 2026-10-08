@@ -72,6 +72,56 @@ namespace Windsock
             return forecasts;
         }
 
+        public static async Task<Dictionary<string, TWC_HourlyForecast>> CollectHourlyForecasts(List<LFRecordLocation> locations, List<string> coopIds, ApiConfig api)
+        {
+            string? apiKey = api.TwcForecastsKey;
+            if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "your_api_key_here")
+            {
+                throw new InvalidOperationException("You didn't set the TWC Forecasts API key.");
+            }
+
+            Dictionary<string, TWC_HourlyForecast> forecasts = new Dictionary<string, TWC_HourlyForecast>();
+            foreach (string coopId in coopIds.Distinct())
+            {
+                LFRecordLocation? location = locations.Find(item => item.CoopID == coopId);
+                if (location == null || !double.TryParse(location.Latitude, NumberStyles.Float, CultureInfo.InvariantCulture, out double latitude) || !double.TryParse(location.Longitude, NumberStyles.Float, CultureInfo.InvariantCulture, out double longitude) || latitude is < -90 or > 90 || longitude is < -180 or > 180)
+                {
+                    Console.WriteLine("No valid coordinates found for forecast location: " + coopId);
+                    continue;
+                }
+
+                string url = "https://api.weather.com/v1/geocode/" + latitude.ToString(CultureInfo.InvariantCulture) + "/" + longitude.ToString(CultureInfo.InvariantCulture) + "/forecast/hourly/48hour.json?units=e&language=en-US&apiKey=" + Uri.EscapeDataString(apiKey);
+
+                try
+                {
+                    using HttpResponseMessage response = await client.GetAsync(url);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine("Hourly forecast failed for " + coopId + ": HTTP " + (int)response.StatusCode);
+                        continue;
+                    }
+
+                    using JsonDocument json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                    if (!json.RootElement.TryGetProperty("forecasts", out JsonElement entries) || entries.ValueKind != JsonValueKind.Array)
+                    {
+                        throw new JsonException("The response does not contain hourly forecasts.");
+                    }
+
+                    TWC_HourlyForecast forecast = json.RootElement.Deserialize<TWC_HourlyForecast>() ?? throw new JsonException("The hourly forecast response is empty.");
+                    if (forecast.Forecasts?.Count > 0)
+                    {
+                        forecasts[coopId] = forecast;
+                    }
+                }
+                catch (Exception exception) when (exception is HttpRequestException || exception is TaskCanceledException || exception is JsonException)
+                {
+                    Console.WriteLine("Could not collect hourly forecast for " + coopId + " (" + exception.GetType().Name + ").");
+                }
+            }
+
+            return forecasts;
+        }
+
         public static async Task<Dictionary<string, TWC_CurrentObservation>> CollectCurrentConditions(List<LFRecordLocation> locations, List<string> stationIds, ApiConfig api)
         {
             string? apiKey = api.TwcForecastsKey;

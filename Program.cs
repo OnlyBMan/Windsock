@@ -37,6 +37,7 @@
                 await Task.WhenAll(
                     RunScheduled("Current conditions", TimeSpan.FromMinutes(config.Timing.CurrentConditions), () => CollectCurrentConditions(config, interests, locations), shutdown.Token),
                     RunScheduled("Daily forecast", TimeSpan.FromMinutes(config.Timing.DailyForecast), () => CollectDailyForecast(config, interests, locations), shutdown.Token),
+                    RunScheduled("Hourly forecast", TimeSpan.FromMinutes(config.Timing.HourlyForecast), () => CollectHourlyForecast(config, interests, locations), shutdown.Token),
                     RunScheduled("Radar", TimeSpan.FromMinutes(config.Timing.Radar), () => CollectRadar(config, i1Config), shutdown.Token),
                     RunScheduled("SatRad", TimeSpan.FromMinutes(config.Timing.SatRad), () => CollectSatRad(config, i1Config), shutdown.Token));
             }
@@ -100,6 +101,22 @@
             foreach (KeyValuePair<string, TWC_DailyForecast> forecast in dailyForecasts)
             {
                 List<string> segments = TWC_DailyForecasts.BuildSegments(forecast.Key, forecast.Value);
+                if (segments.Count == 0)
+                {
+                    continue;
+                }
+                List<byte[]> packets = PacketEncoding.BuildMessage(segments);
+                PacketSending.SendMulticast(packets, config.Network, priority: false);
+            }
+        }
+
+        private static async Task CollectHourlyForecast(Config config, Dictionary<string, List<string>> interests, List<LFRecordLocation> locations)
+        {
+            List<string> coopIds = interests.GetValueOrDefault("coopId") ?? new List<string>();
+            Dictionary<string, TWC_HourlyForecast> hourlyForecasts = await DataCollector.CollectHourlyForecasts(locations, coopIds, config.API);
+            foreach (KeyValuePair<string, TWC_HourlyForecast> forecast in hourlyForecasts)
+            {
+                List<string> segments = TWC_HourlyForecasts.BuildSegments(forecast.Key, forecast.Value);
                 if (segments.Count == 0)
                 {
                     continue;
