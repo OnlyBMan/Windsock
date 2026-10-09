@@ -60,6 +60,20 @@ namespace Windsock
                                 dailyForecast.Night.Narrative = Regex.Replace(dailyForecast.Night.Narrative, tempNarrativePattern, "");
                             }
                         }
+
+                        string DAVocalKeyPattern = @"(?:^DA\d+:?|:DA\d+(?=:|$))";
+                        foreach (var dailyForecast in forecast.Forecasts)
+                        {
+                            if (!string.IsNullOrWhiteSpace(dailyForecast.Day?.VocalKey))
+                            {
+                                dailyForecast.Day.VocalKey = Regex.Replace(dailyForecast.Day.VocalKey, DAVocalKeyPattern, "");
+                            }
+                            if (!string.IsNullOrWhiteSpace(dailyForecast.Night?.VocalKey))
+                            {
+                                dailyForecast.Night.VocalKey = Regex.Replace(dailyForecast.Night.VocalKey, DAVocalKeyPattern, "");
+                            }
+                        }
+
                         forecasts[coopId] = forecast;
                     }
                 }
