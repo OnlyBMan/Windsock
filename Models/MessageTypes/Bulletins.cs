@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Windsock
@@ -49,12 +51,16 @@ namespace Windsock
                 issueTime /= 1000;
             }
             string areaLiteral = PythonStringHelper.PyValue(areaId);
+            int? trackingNumber = detail.EventTrackingNumber ?? alert.EventTrackingNumber;
+            string eventId = trackingNumber.HasValue ? string.Join(":", detail.OfficeCode ?? alert.OfficeCode, detail.Phenomena ?? alert.Phenomena, detail.Significance ?? alert.Significance, trackingNumber.Value) : alert.DetailKey ?? detail.DetailKey ?? title;
+            string group = "windsock-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", alert.Product, alert.AreaId ?? detail.AreaId ?? areaId, pil, eventId)))).ToLowerInvariant();
 
             return new List<string>
             {
                 $"""
                 import twccommon
                 import twc.dsmarshal as dsm
+                import twc.DataStoreInterface as ds
                 areaList = wxdata.getBulletinInterestList({areaLiteral})
                 if not areaList:
                     abortMsg()
@@ -90,6 +96,14 @@ namespace Windsock
                 if not bulletinKey:
                     twccommon.Log.info('No matching IntelliStar bulletin title')
                     abortMsg()
+                # The receiver only honors b.group when the selected definition permits it.
+                info = dsm.defaultedConfigGet('pil.' + bulletinKey)
+                if getattr(info, 'groupOverride', 0) != 1:
+                    override = twc.Data()
+                    override.__dict__.update(info.__dict__)
+                    override.groupOverride = 1
+                    dsm.set('Config.%s.pil.%s' % (dsm.getConfigVersion(), bulletinKey), override, 0, 0)
+                    ds.commit()
                 txt = {PythonStringHelper.PyBytes(text)}
                 for area in areaList:
                     b = twc.Data()
@@ -97,7 +111,7 @@ namespace Windsock
                     b.pilExt = bulletinKey[3:]
                     b.issueTime = {PythonStringHelper.PyValue(issueTime)}
                     b.dispExpiration = {PythonStringHelper.PyValue(expiration)}
-                    b.group = ''
+                    b.group = {PythonStringHelper.PyValue(group)}
                     b.text = txt
                     exp = {PythonStringHelper.PyValue(expiration)}
                     wxdata.setBulletin(area, b, exp)

@@ -45,6 +45,9 @@ namespace Windsock
         [JsonPropertyName("officeCode")]
         public string? OfficeCode { get; set; }
 
+        [JsonPropertyName("eventTrackingNumber")]
+        public int? EventTrackingNumber { get; set; }
+
         [JsonPropertyName("phenomena")]
         public string? Phenomena { get; set; }
 
