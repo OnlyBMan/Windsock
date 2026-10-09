@@ -22,7 +22,7 @@ namespace Windsock
             I1Config config = new()
             {
                 Interests = ParseInterests(tree.RootNode, language, configId),
-                Maps = ParseMaps(tree.RootNode, configId)
+                Maps = ParseMaps(tree.RootNode)
             };
 
             foreach (Node statement in tree.RootNode.NamedChildren)
@@ -75,7 +75,7 @@ namespace Windsock
                 throw new FormatException("Unable to parse I1 config.");
             }
 
-            return ParseMaps(tree.RootNode, configId ?? FindConfigId(tree.RootNode));
+            return ParseMaps(tree.RootNode);
         }
 
         private static string FindConfigId(Node root)
@@ -151,10 +151,9 @@ namespace Windsock
             return interests;
         }
 
-        private static Dictionary<string, I1Map> ParseMaps(Node root, string configId)
+        private static Dictionary<string, I1Map> ParseMaps(Node root)
         {
             Dictionary<string, I1Map> maps = new(StringComparer.OrdinalIgnoreCase);
-            string configPrefix = $"Config.{configId}.";
             I1Map? pendingMap = null;
 
             foreach (Node statement in root.NamedChildren)
@@ -254,12 +253,7 @@ namespace Windsock
                 }
 
                 string configKey = ReadPythonString(arguments[0].Text);
-                if (!configKey.StartsWith(configPrefix, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                pendingMap.Name = configKey[configPrefix.Length..];
+                pendingMap.Name = configKey;
                 pendingMap.ConfigKey = configKey;
                 maps[pendingMap.Name] = pendingMap;
                 pendingMap = null;
