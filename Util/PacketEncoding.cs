@@ -97,7 +97,7 @@ namespace Windsock
             List<byte[]> packets = new List<byte[]>();
             for (int index = 0; index < segments.Count; index++)
             {
-                byte[] payload = System.Text.Encoding.UTF8.GetBytes(segments[index]);
+                byte[] payload = System.Text.Encoding.UTF8.GetBytes(segments[index].ReplaceLineEndings("\n"));
                 AddSegment(packets, payload, messageID, (byte)index, (byte)segments.Count, 1);
             }
             return packets;
@@ -111,7 +111,7 @@ namespace Windsock
             }
 
             byte[] destinationBytes = System.Text.Encoding.UTF8.GetBytes(destination);
-            byte[] storeBytes = System.Text.Encoding.UTF8.GetBytes(storeCommand);
+            byte[] storeBytes = System.Text.Encoding.UTF8.GetBytes(storeCommand.ReplaceLineEndings("\n"));
             if (destinationBytes.Length > Constants.MAX_PACKET_SIZE - 16 || storeBytes.Length > Constants.MAX_PACKET_SIZE)
             {
                 throw new ArgumentException("The destination or store command exceeds one i1 packet.");
@@ -121,7 +121,7 @@ namespace Windsock
             List<byte[]> packets = new List<byte[]>();
             for (int index = 0; index < commands.Count; index++)
             {
-                AddSegment(packets, System.Text.Encoding.UTF8.GetBytes(commands[index]), messageID, (byte)index, 4, 2);
+                AddSegment(packets, System.Text.Encoding.UTF8.GetBytes(commands[index].ReplaceLineEndings("\n")), messageID, (byte)index, 4, 2);
             }
 
             int chunkCount = (fileData.Length - 1) / Constants.MAX_PACKET_SIZE + 1;
